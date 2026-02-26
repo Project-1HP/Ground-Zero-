@@ -1,0 +1,26 @@
+import React from "react";
+import ContainerPanel from "./ContainerPanel";
+
+const containerIds = [
+  "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+];
+
+const App: React.FC = () => {
+  return (
+    <div style={{ padding: 16 }}>
+      <h2>Ground Zero dApp GUI</h2>
+      <p style={{ fontSize: 13 }}>
+        Each panel controls a container by writing its desired state to Ground
+        Zero via MetaMask.
+      </p>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        {containerIds.map((id) => (
+          <ContainerPanel key={id} idHex={id} />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default App;
