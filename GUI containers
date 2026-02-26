@@ -1,0 +1,416 @@
+import tkinter as tk
+from tkinter import ttk
+import tkinter.font as tkFont
+from typing import Dict, List, Optional
+from dataclasses import dataclass
+from enum import Enum
+
+class ContainerType(Enum):
+    """Types of containers in the GUI"""
+    MAIN = "main"
+    PREORDER = "preorder"
+    SEARCH = "search"
+    MENU = "menu"
+
+@dataclass
+class ContainerConfig:
+    """Configuration for GUI containers"""
+    container_id: str
+    title: str
+    type: ContainerType
+    width: int
+    height: int
+    position: tuple  # (x, y)
+    color: str = "#2c3e50"
+    border_width: int = 2
+
+class ContainerGUI:
+    """Main GUI application with container layout"""
+    
+    def __init__(self, root: tk.Tk):
+        self.root = root
+        self.root.title("Container GUI - 8+2+4 Layout")
+        self.root.geometry("1200x800")
+        self.root.configure(bg="#1a1a1a")
+        
+        # Container configurations
+        self.containers: Dict[str, ContainerConfig] = {}
+        self.active_container = None
+        
+        # Create all containers
+        self.setup_containers()
+        self.create_gui_elements()
+        self.setup_bindings()
+        
+    def setup_containers(self):
+        """Setup all container configurations"""
+        # Create 8 center containers
+        center_positions = [
+            (250, 150), (500, 150), (750, 150),  # Top row
+            (250, 300), (500, 300), (750, 300),  # Middle row
+            (250, 450), (500, 450)                # Bottom row
+        ]
+        
+        for i in range(8):
+            self.containers[f"center_{i}"] = ContainerConfig(
+                container_id=f"center_{i}",
+                title=f"Container {i+1}",
+                type=ContainerType.MAIN,
+                width=200,
+                height=120,
+                position=center_positions[i],
+                color="#34495e" if i % 2 == 0 else "#2c3e50"
+            )
+        
+        # Create 2 wide containers (connecting to 8)
+        self.containers["wide_left"] = ContainerConfig(
+            container_id="wide_left",
+            title="Wide Left Container",
+            type=ContainerType.MAIN,
+            width=400,
+            height=200,
+            position=(100, 300),
+            color="#16a085"
+        )
+        
+        self.containers["wide_right"] = ContainerConfig(
+            container_id="wide_right",
+            title="Wide Right Container",
+            type=ContainerType.MAIN,
+            width=400,
+            height=200,
+            position=(700, 300),
+            color="#16a085"
+        )
+        
+        # Create 4 corner containers (preorder)
+        corner_positions = [
+            (50, 50),       # Top-left
+            (1050, 50),     # Top-right
+            (50, 700),      # Bottom-left
+            (1050, 700)     # Bottom-right
+        ]
+        
+        for i, pos in enumerate(corner_positions):
+            self.containers[f"corner_{i}"] = ContainerConfig(
+                container_id=f"corner_{i}",
+                title=f"Preorder Account {i+1}",
+                type=ContainerType.PREORDER,
+                width=150,
+                height=100,
+                position=pos,
+                color="#e74c3c"
+            )
+        
+        # Create search container
+        self.containers["search"] = ContainerConfig(
+            container_id="search",
+            title="Search",
+            type=ContainerType.SEARCH,
+            width=300,
+            height=40,
+            position=(450, 50),
+            color="#3498db"
+        )
+        
+        # Create menu containers (4 corners of central area)
+        menu_positions = [
+            (400, 100),     # Top-center
+            (800, 100),     # Top-right
+            (400, 650),     # Bottom-left
+            (800, 650)      # Bottom-right
+        ]
+        
+        for i, pos in enumerate(menu_positions):
+            self.containers[f"menu_{i}"] = ContainerConfig(
+                container_id=f"menu_{i}",
+                title=f"Menu {i+1}",
+                type=ContainerType.MENU,
+                width=150,
+                height=100,
+                position=pos,
+                color="#9b59b6"
+            )
+    
+    def create_gui_elements(self):
+        """Create all GUI elements based on container configurations"""
+        # Create canvas for organizing containers
+        self.canvas = tk.Canvas(self.root, bg="#1a1a1a", highlightthickness=0)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # Create all containers
+        for container_id, config in self.containers.items():
+            self.create_container(config)
+        
+        # Create UI elements for corner containers
+        self.create_corner_containers()
+        
+        # Create search functionality
+        self.create_search_container()
+        
+        # Create menu navigation
+        self.create_menu_containers()
+    
+    def create_container(self, config: ContainerConfig):
+        """Create a single container"""
+        x, y = config.position
+        width, height = config.width, config.height
+        
+        # Create container frame
+        container_frame = tk.Frame(
+            self.canvas,
+            width=width,
+            height=height,
+            bg=config.color,
+            relief=tk.RAISED,
+            bd=config.border_width
+        )
+        container_frame.place(x=x, y=y)
+        
+        # Add title label
+        title_label = tk.Label(
+            container_frame,
+            text=config.title,
+            bg=config.color,
+            fg="#ecf0f1",
+            font=("Arial", 10, "bold"),
+            wraplength=width - 20
+        )
+        title_label.place(relx=0.5, rely=0.3, anchor=tk.CENTER)
+        
+        # Add container ID text
+        id_label = tk.Label(
+            container_frame,
+            text=config.container_id,
+            bg=config.color,
+            fg="#bdc3c7",
+            font=("Arial", 8)
+        )
+        id_label.place(relx=0.5, rely=0.7, anchor=tk.CENTER)
+        
+        # Add click functionality
+        container_frame.bind("<Button-1>", lambda e, cid=config.container_id: self.select_container(cid))
+        title_label.bind("<Button-1>", lambda e, cid=config.container_id: self.select_container(cid))
+        
+        # Store reference to container frame
+        self.canvas.itemconfig(container_frame, tags=config.container_id)
+    
+    def create_corner_containers(self):
+        """Create the 4 corner containers with preorder functionality"""
+        for i in range(4):
+            container = self.containers[f"corner_{i}"]
+            x, y = container.position
+            
+            # Create container frame
+            frame = tk.Frame(
+                self.canvas,
+                width=container.width,
+                height=container.height,
+                bg=container.color,
+                relief=tk.RAISED,
+                bd=container.border_width
+            )
+            frame.place(x=x, y=y)
+            
+            # Add content
+            title_label = tk.Label(
+                frame,
+                text=f"Account {i+1}",
+                bg=container.color,
+                fg="#ecf0f1",
+                font=("Arial", 10, "bold")
+            )
+            title_label.place(relx=0.5, rely=0.3, anchor=tk.CENTER)
+            
+            # Add preorder indicator
+            status_label = tk.Label(
+                frame,
+                text="Preorder Configured",
+                bg=container.color,
+                fg="#2ecc71",
+                font=("Arial", 8)
+            )
+            status_label.place(relx=0.5, rely=0.7, anchor=tk.CENTER)
+            
+            # Make clickable
+            frame.bind("<Button-1>", lambda e, cid=f"corner_{i}": self.select_container(cid))
+    
+    def create_search_container(self):
+        """Create the center search container"""
+        search_container = self.containers["search"]
+        x, y = search_container.position
+        
+        # Create frame
+        frame = tk.Frame(
+            self.canvas,
+            width=search_container.width,
+            height=search_container.height,
+            bg=search_container.color,
+            relief=tk.RAISED,
+            bd=search_container.border_width
+        )
+        frame.place(x=x, y=y)
+        
+        # Add search entry
+        search_var = tk.StringVar()
+        search_entry = tk.Entry(
+            frame,
+            textvariable=search_var,
+            bg="#3498db",
+            fg="#ecf0f1",
+            font=("Arial", 10),
+            relief=tk.FLAT
+        )
+        search_entry.place(relx=0.1, rely=0.5, relwidth=0.7, anchor=tk.CENTER)
+        search_entry.insert(0, "Search...")
+        search_entry.bind("<FocusIn>", lambda e: search_var.set(""))
+        search_entry.bind("<Return>", self.search_action)
+        
+        # Add search button
+        search_btn = tk.Button(
+            frame,
+            text="🔍",
+            bg="#2980b9",
+            fg="#ecf0f1",
+            font=("Arial", 10),
+            relief=tk.FLAT,
+            command=lambda: self.search_action(None)
+        )
+        search_btn.place(relx=0.85, rely=0.5, anchor=tk.CENTER)
+        
+        # Add dropdown functionality
+        self.create_search_dropdown(frame, x, y)
+    
+    def create_search_dropdown(self, parent, x, y):
+        """Create searchable dropdown"""
+        # Dropdown button
+        dropdown_btn = tk.Button(
+            parent,
+            text="▼",
+            bg="#2980b9",
+            fg="#ecf0f1",
+            font=("Arial", 8),
+            relief=tk.FLAT
+        )
+        dropdown_btn.place(relx=0.95, rely=0.5, anchor=tk.CENTER)
+        
+        # Dropdown menu (hidden initially)
+        self.search_dropdown = tk.Frame(
+            self.root,
+            bg="#34495e",
+            width=250,
+            height=150
+        )
+        self.search_dropdown.place_forget()
+        
+        # Options
+        options = ["Recent Searches", "Favorites", "All Categories", "Settings"]
+        for i, option in enumerate(options):
+            option_btn = tk.Button(
+                self.search_dropdown,
+                text=option,
+                bg="#2c3e50",
+                fg="#ecf0f1",
+                font=("Arial", 9),
+                relief=tk.FLAT,
+                padx=10,
+                pady=5
+            )
+            option_btn.pack(fill=tk.X, pady=2, padx=5)
+            option_btn.bind("<Button-1>", lambda e, opt=option: self.select_search_option(opt))
+    
+    def create_menu_containers(self):
+        """Create the 4 menu containers for navigation"""
+        for i in range(4):
+            container = self.containers[f"menu_{i}"]
+            x, y = container.position
+            
+            # Create frame
+            frame = tk.Frame(
+                self.canvas,
+                width=container.width,
+                height=container.height,
+                bg=container.color,
+                relief=tk.RAISED,
+                bd=container.border_width
+            )
+            frame.place(x=x, y=y)
+            
+            # Add menu title
+            title_label = tk.Label(
+                frame,
+                text=f"Menu {i+1}",
+                bg=container.color,
+                fg="#ecf0f1",
+                font=("Arial", 10, "bold")
+            )
+            title_label.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
+            
+            # Add navigation icon
+            nav_icon = tk.Label(
+                frame,
+                text="NAV",
+                bg=container.color,
+                fg="#f1c40f",
+                font=("Arial", 8)
+            )
+            nav_icon.place(relx=0.5, rely=0.7, anchor=tk.CENTER)
+            
+            # Make clickable
+            frame.bind("<Button-1>", lambda e, cid=f"menu_{i}": self.select_container(cid))
+    
+    def select_container(self, container_id: str):
+        """Handle container selection"""
+        self.active_container = container_id
+        print(f"Selected container: {container_id}")
+        
+        # Visual feedback for selected container
+        for cid, config in self.containers.items():
+            if cid == container_id:
+                # Highlight selected container
+                self.highlight_container(cid, True)
+            else:
+                # Remove highlight
+                self.highlight_container(cid, False)
+    
+    def highlight_container(self, container_id: str, selected: bool):
+        """Highlight or unhighlight a container"""
+        # This would normally update the visual appearance
+        # Implementation depends on actual widget references
+        pass
+    
+    def search_action(self, event):
+        """Handle search action"""
+        search_text = self.canvas.winfo_children()[self.containers["search"].position[0] // 50]  # Simplified
+        print("Search action initiated")
+    
+    def select_search_option(self, option: str):
+        """Handle selection from search dropdown"""
+        print(f"Search option selected: {option}")
+    
+    def setup_bindings(self):
+        """Setup keyboard and mouse bindings"""
+        self.root.bind("<Escape>", lambda e: self.root.quit())
+        self.root.bind("<F1>", lambda e: print("Help requested"))
+
+def main():
+    """Main application function"""
+    root = tk.Tk()
+    app = ContainerGUI(root)
+    
+    # Add window title
+    root.title("Container GUI - 8+2+4 Layout")
+    
+    # Make window resizable
+    root.minsize(800, 600)
+    
+    # Add status bar
+    status_frame = tk.Frame(root, bg="#2c3e50", height=20)
+    status_frame.pack(side=tk.BOTTOM, fill=tk.X)
+    status_label = tk.Label(status_frame, text="Ready", bg="#2c3e50", fg="#ecf0f1")
+    status_label.pack(side=tk.LEFT, padx=10)
+    
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
