@@ -1,0 +1,75 @@
+struct StorageOffer {
+    uint256 id;
+    address provider;
+    uint64 createdAt;
+    uint64 minLeaseSeconds;
+    uint64 maxLeaseSeconds;
+    uint256 capacityGB;
+    uint256 usedGB;
+    uint256 pricePerGBPerSec;
+    StorageClass class_;
+    bool supportsVpn;           // NEW: VPN capability
+    uint256 maxVpnSessions;     // NEW: concurrent VPN limit per lease
+    uint256 vpnBandwidthMbps;   // NEW: VPN bandwidth per session
+    bytes32 vpnConfigTemplate;  // NEW: IPFS CID of WireGuard/OpenVPN template
+    bool active;
+    bytes32 metaHash;
+}
+
+struct Lease {
+    uint256 id;
+    uint256 offerId;
+    address consumer;
+    uint64 startTime;
+    uint64 endTime;
+    uint256 sizeGB;
+    bytes32 dataRoot;           // IPFS CID / Merkle root
+    bool vpnEnabled;            // NEW: VPN requested
+    bytes32 vpnConfigHash;      // NEW: Provider-published VPN config CID
+    bool active;
+}
+
+// NEW: VPN-specific events
+event VpnBundleRequested(uint256 indexed leaseId, uint256 indexed offerId, address indexed consumer, uint256 vpnBandwidthMbps);
+event VpnConfigPublished(uint256 indexed leaseId, bytes32 vpnConfigHash);
+
+function openLeaseWithVpn(
+    uint256 offerId,
+    uint256 sizeGB,
+    uint64 leaseSeconds,
+    bool enableVpn
+) external returns (uint256 leaseId) {
+    StorageOffer storage o = offers[offerId];
+    require(o.active && o.supportsVpn == enableVpn, "offer mismatch");
+    
+    uint256 amount = sizeGB * leaseSeconds * o.pricePerGBPerSec;
+    if (enableVpn) {
+        // Add VPN surcharge (fixed or proportional)
+        amount += (o.vpnBandwidthMbps * leaseSeconds * 1e12); // example pricing
+    }
+    
+    require(paymentToken.transferFrom(msg.sender, o.provider, amount), "payment failed");
+    
+    // ... rest of lease creation logic ...
+    
+    leases[leaseId] = Lease({
+        // ... existing fields ...
+        vpnEnabled: enableVpn,
+        vpnConfigHash: bytes32(0)
+    });
+    
+    if (enableVpn) {
+        emit VpnBundleRequested(leaseId, offerId, msg.sender, o.vpnBandwidthMbps);
+    }
+}
+
+function publishVpnConfig(uint256 leaseId, bytes32 vpnConfigHash) external {
+    Lease storage L = leases[leaseId];
+    require(L.consumer != address(0) && L.active, "invalid lease");
+    StorageOffer storage o = offers[L.offerId];
+    require(msg.sender == o.provider, "not provider");
+    require(L.vpnEnabled && L.vpnConfigHash == bytes32(0), "vpn already set");
+    
+    L.vpnConfigHash = vpnConfigHash;
+    emit VpnConfigPublished(leaseId, vpnConfigHash);
+}
