@@ -1,0 +1,163 @@
+// src/App.tsx
+import React, { useEffect, useState } from "react";
+import { BrowserProvider, Contract } from "ethers";
+import registryAbi from "./registryAbi.json";
+
+// Types for enum DesiredState { Unknown=0, Stopped=1, Running=2 }
+type DesiredState = 0 | 1 | 2;
+
+declare global {
+  interface Window {
+    ethereum?: any;
+  }
+}
+
+const REGISTRY_ADDRESS = "0xYourRegistryAddressOnGroundZero";
+const GROUND_ZERO_CHAIN_ID_HEX = "0x4d2"; // 1234 in hex
+const CONTAINER_ID =
+  "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; // bytes32
+
+async function getGroundZeroSigner() {
+  if (!window.ethereum) {
+    throw new Error("MetaMask not available");
+  }
+
+  // enforce Ground Zero network
+  await window.ethereum.request({
+    method: "wallet_switchEthereumChain",
+    params: [{ chainId: GROUND_ZERO_CHAIN_ID_HEX }],
+  });
+
+  const provider = new BrowserProvider(window.ethereum);
+  const accounts = await provider.send("eth_requestAccounts", []);
+  const signer = await provider.getSigner(accounts[0]);
+  return { provider, signer };
+}
+
+function getRegistry(signerOrProvider: any) {
+  return new Contract(REGISTRY_ADDRESS, registryAbi as any, signerOrProvider);
+}
+
+const App: React.FC = () => {
+  const [account, setAccount] = useState<string | null>(null);
+  const [owner, setOwner] = useState<string>("");
+  const [desired, setDesired] = useState<DesiredState>(0);
+  const [status, setStatus] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+
+  const loadContainer = async () => {
+    try {
+      setLoading(true);
+      const { provider } = await getGroundZeroSigner();
+      const registry = getRegistry(provider);
+      const [ownerAddr, desiredState] = await registry.get(CONTAINER_ID);
+      setOwner(ownerAddr);
+      setDesired(desiredState);
+      setStatus("Loaded container from Ground Zero");
+    } catch (err: any) {
+      console.error(err);
+      setStatus(err.message || "Failed to load container");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const connectWallet = async () => {
+    try {
+      setLoading(true);
+      const { signer } = await getGroundZeroSigner();
+      const addr = await signer.getAddress();
+      setAccount(addr);
+      setStatus("Wallet connected to Ground Zero");
+      await loadContainer();
+    } catch (err: any) {
+      console.error(err);
+      setStatus(err.message || "Failed to connect wallet");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const setDesiredOnChain = async (next: DesiredState) => {
+    try {
+      setLoading(true);
+      const { signer } = await getGroundZeroSigner();
+      const registry = getRegistry(signer);
+      const tx = await registry.setDesired(CONTAINER_ID, next);
+      setStatus("Tx sent, waiting for confirmation…");
+      await tx.wait();
+      setDesired(next);
+      setStatus("Desired state updated on Ground Zero");
+    } catch (err: any) {
+      console.error(err);
+      setStatus(err.message || "Failed to update desired state");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // auto‑connect if already authorized
+    if (window.ethereum) {
+      window.ethereum
+        .request({ method: "eth_accounts" })
+        .then((accounts: string[]) => {
+          if (accounts.length > 0) {
+            connectWallet();
+          }
+        })
+        .catch(console.error);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div style={{ padding: 16, fontFamily: "sans-serif" }}>
+      <h2>Ground Zero dApp (ethers.js)</h2>
+      <p style={{ fontSize: 13 }}>
+        Controls a single container by updating its desired state on the Ground
+        Zero fork.
+      </p>
+
+      {!account ? (
+        <button disabled={loading} onClick={connectWallet}>
+          Connect MetaMask (Ground Zero)
+        </button>
+      ) : (
+        <p style={{ fontSize: 12 }}>Connected: {account}</p>
+      )}
+
+      {loading && <p>Loading…</p>}
+      {status && <p style={{ fontSize: 12 }}>{status}</p>}
+
+      <hr />
+
+      <p style={{ fontSize: 12, wordBreak: "break-all" }}>
+        Container ID: {CONTAINER_ID}
+      </p>
+      <p style={{ fontSize: 12, wordBreak: "break-all" }}>
+        Owner: {owner || "unregistered"}
+      </p>
+      <p>
+        Desired state:{" "}
+        {desired === 2 ? "Running" : desired === 1 ? "Stopped" : "Unknown"}
+      </p>
+
+      <button
+        style={{ marginRight: 8 }}
+        disabled={!account || loading}
+        onClick={() => setDesiredOnChain(2)}
+      >
+        Set RUNNING
+      </button>
+      <button
+        disabled={!account || loading}
+        onClick={() => setDesiredOnChain(1)}
+      >
+        Set STOPPED
+      </button>
+    </div>
+  );
+};
+
+export default App;
