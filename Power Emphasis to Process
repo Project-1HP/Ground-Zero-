@@ -1,0 +1,22 @@
+enum ResourceKind { Storage, GPU, CPU, VPN, DNS, Email }
+
+struct Offer {
+    uint256 id;
+    address provider;
+    ResourceKind kind;
+    uint256 capacity;      // e.g., GB, GPU‑hours
+    uint256 minPricePerUnit;  // in GZ token per unit
+    uint64 startTime;
+    uint64 endTime;
+    bool active;
+}
+
+struct Allocation {
+    uint256 offerId;
+    address consumer;
+    uint256 units;
+    uint256 pricePerUnit;
+    uint64 startTime;
+    uint64 endTime;
+    bool settled;
+}
