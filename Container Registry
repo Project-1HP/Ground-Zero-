@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract ContainerRegistry {
+    enum DesiredState {
+        Unknown,
+        Stopped,
+        Running
+    }
+
+    struct Container {
+        address owner;
+        DesiredState desired;
+    }
+
+    mapping(bytes32 => Container) public containers;
+
+    event ContainerRegistered(bytes32 indexed id, address indexed owner);
+    event DesiredStateChanged(bytes32 indexed id, DesiredState desired);
+
+    function register(bytes32 id) external {
+        require(containers[id].owner == address(0), "already registered");
+        containers[id] = Container({owner: msg.sender, desired: DesiredState.Stopped});
+        emit ContainerRegistered(id, msg.sender);
+    }
+
+    function setDesired(bytes32 id, DesiredState desired) external {
+        require(containers[id].owner == msg.sender, "not owner");
+        containers[id].desired = desired;
+        emit DesiredStateChanged(id, desired);
+    }
+
+    function get(bytes32 id)
+        external
+        view
+        returns (address owner, DesiredState desired)
+    {
+        Container storage c = containers[id];
+        return (c.owner, c.desired);
+    }
+}
