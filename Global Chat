@@ -1,0 +1,293 @@
+from typing import Dict, List, Optional, Set
+from dataclasses import dataclass, field
+from datetime import datetime
+import uuid
+from enum import Enum
+
+class ChatRole(Enum):
+    """User roles in chat system"""
+    ADMIN = "admin"
+    MODERATOR = "moderator"
+    MEMBER = "member"
+    GUEST = "guest"
+
+class MessageType(Enum):
+    """Types of messages"""
+    TEXT = "text"
+    IMAGE = "image"
+    FILE = "file"
+    SYSTEM = "system"
+
+@dataclass
+class User:
+    """Represents a user in the chat system"""
+    user_id: str
+    username: str
+    email: str
+    role: ChatRole = ChatRole.MEMBER
+    is_online: bool = False
+    joined_at: datetime = field(default_factory=datetime.now)
+    last_active: datetime = field(default_factory=datetime.now)
+
+@dataclass
+class Message:
+    """Represents a chat message"""
+    message_id: str
+    user_id: str
+    chat_id: str
+    content: str
+    message_type: MessageType = MessageType.TEXT
+    timestamp: datetime = field(default_factory=datetime.now)
+    edited: bool = False
+    reactions: Dict[str, int] = field(default_factory=dict)
+
+@dataclass
+class Chat:
+    """Represents a chat room"""
+    chat_id: str
+    name: str
+    description: str = ""
+    is_private: bool = False
+    created_at: datetime = field(default_factory=datetime.now)
+    created_by: str = ""
+    members: Set[str] = field(default_factory=set)
+    admins: Set[str] = field(default_factory=set)
+    messages: List[Message] = field(default_factory=list)
+
+class GlobalChatManager:
+    """Manages global chat system with multiple chats and users"""
+    
+    def __init__(self):
+        self.users: Dict[str, User] = {}
+        self.chats: Dict[str, Chat] = {}
+        self.user_chats: Dict[str, Set[str]] = {}  # user_id -> set of chat_ids
+        self.chat_messages: Dict[str, List[Message]] = {}  # chat_id -> message list
+    
+    def create_user(self, username: str, email: str, role: ChatRole = ChatRole.MEMBER) -> User:
+        """Create a new user"""
+        user_id = str(uuid.uuid4())
+        user = User(
+            user_id=user_id,
+            username=username,
+            email=email,
+            role=role
+        )
+        self.users[user_id] = user
+        self.user_chats[user_id] = set()
+        return user
+    
+    def get_user(self, user_id: str) -> Optional[User]:
+        """Get user by ID"""
+        return self.users.get(user_id)
+    
+    def get_user_by_email(self, email: str) -> Optional[User]:
+        """Get user by email"""
+        for user in self.users.values():
+            if user.email == email:
+                return user
+        return None
+    
+    def create_chat(self, name: str, created_by: str, 
+                   description: str = "", is_private: bool = False) -> Chat:
+        """Create a new chat"""
+        chat_id = str(uuid.uuid4())
+        chat = Chat(
+            chat_id=chat_id,
+            name=name,
+            description=description,
+            is_private=is_private,
+            created_by=created_by
+        )
+        
+        # Add creator as admin and member
+        chat.admins.add(created_by)
+        chat.members.add(created_by)
+        self.user_chats[created_by].add(chat_id)
+        
+        self.chats[chat_id] = chat
+        self.chat_messages[chat_id] = []
+        
+        return chat
+    
+    def get_chat(self, chat_id: str) -> Optional[Chat]:
+        """Get chat by ID"""
+        return self.chats.get(chat_id)
+    
+    def join_chat(self, user_id: str, chat_id: str) -> bool:
+        """User joins a chat"""
+        chat = self.get_chat(chat_id)
+        user = self.get_user(user_id)
+        
+        if not chat or not user:
+            return False
+        
+        chat.members.add(user_id)
+        self.user_chats[user_id].add(chat_id)
+        return True
+    
+    def leave_chat(self, user_id: str, chat_id: str) -> bool:
+        """User leaves a chat"""
+        chat = self.get_chat(chat_id)
+        
+        if not chat:
+            return False
+        
+        # Remove from chat
+        chat.members.discard(user_id)
+        chat.admins.discard(user_id)
+        
+        # Remove from user's chats
+        if user_id in self.user_chats:
+            self.user_chats[user_id].discard(chat_id)
+        
+        return True
+    
+    def send_message(self, user_id: str, chat_id: str, content: str, 
+                    message_type: MessageType = MessageType.TEXT) -> Optional[Message]:
+        """Send a message to a chat"""
+        chat = self.get_chat(chat_id)
+        user = self.get_user(user_id)
+        
+        if not chat or not user:
+            return None
+        
+        # Check if user is member of chat
+        if user_id not in chat.members:
+            return None
+        
+        message_id = str(uuid.uuid4())
+        message = Message(
+            message_id=message_id,
+            user_id=user_id,
+            chat_id=chat_id,
+            content=content,
+            message_type=message_type
+        )
+        
+        chat.messages.append(message)
+        self.chat_messages[chat_id].append(message)
+        
+        # Update user activity
+        user.last_active = datetime.now()
+        
+        return message
+    
+    def get_chat_messages(self, chat_id: str, limit: int = 100) -> List[Message]:
+        """Get recent messages from a chat"""
+        chat = self.get_chat(chat_id)
+        if not chat:
+            return []
+        
+        # Return recent messages (most recent first)
+        return sorted(chat.messages, key=lambda x: x.timestamp, reverse=True)[:limit]
+    
+    def get_user_chats(self, user_id: str) -> List[Chat]:
+        """Get all chats a user is part of"""
+        chat_ids = self.user_chats.get(user_id, set())
+        return [self.chats[chat_id] for chat_id in chat_ids if chat_id in self.chats]
+    
+    def get_online_users(self) -> List[User]:
+        """Get all online users"""
+        return [user for user in self.users.values() if user.is_online]
+    
+    def set_user_online(self, user_id: str, is_online: bool = True) -> bool:
+        """Set user online status"""
+        user = self.get_user(user_id)
+        if not user:
+            return False
+        
+        user.is_online = is_online
+        if is_online:
+            user.last_active = datetime.now()
+        return True
+    
+    def search_messages(self, chat_id: str, query: str) -> List[Message]:
+        """Search messages in a chat"""
+        chat = self.get_chat(chat_id)
+        if not chat:
+            return []
+        
+        results = []
+        query_lower = query.lower()
+        
+        for message in chat.messages:
+            if query_lower in message.content.lower():
+                results.append(message)
+        
+        return results
+    
+    def get_chat_statistics(self, chat_id: str) -> Dict:
+        """Get statistics for a chat"""
+        chat = self.get_chat(chat_id)
+        if not chat:
+            return {}
+        
+        total_messages = len(chat.messages)
+        unique_users = len(chat.members)
+        
+        # Count messages by type
+        message_types = {}
+        for msg in chat.messages:
+            msg_type = msg.message_type.value
+            message_types[msg_type] = message_types.get(msg_type, 0) + 1
+        
+        return {
+            'total_messages': total_messages,
+            'unique_users': unique_users,
+            'message_types': message_types,
+            'created_at': chat.created_at,
+            'is_private': chat.is_private
+        }
+
+# Example usage
+if __name__ == "__main__":
+    # Initialize global chat manager
+    chat_manager = GlobalChatManager()
+    
+    # Create users
+    user1 = chat_manager.create_user("alice", "alice@example.com", ChatRole.ADMIN)
+    user2 = chat_manager.create_user("bob", "bob@example.com", ChatRole.MEMBER)
+    user3 = chat_manager.create_user("charlie", "charlie@example.com", ChatRole.GUEST)
+    
+    print(f"Created users: {len(chat_manager.users)}")
+    
+    # Create a chat
+    chat1 = chat_manager.create_chat(
+        name="General Discussion",
+        created_by=user1.user_id,
+        description="Main discussion channel"
+    )
+    
+    # Join users to chat
+    chat_manager.join_chat(user1.user_id, chat1.chat_id)
+    chat_manager.join_chat(user2.user_id, chat1.chat_id)
+    chat_manager.join_chat(user3.user_id, chat1.chat_id)
+    
+    # Send messages
+    message1 = chat_manager.send_message(user1.user_id, chat1.chat_id, "Hello everyone!")
+    message2 = chat_manager.send_message(user2.user_id, chat1.chat_id, "Hi Alice!")
+    message3 = chat_manager.send_message(user3.user_id, chat1.chat_id, "Greetings!")
+    
+    print(f"Messages sent: {len(chat_manager.get_chat_messages(chat1.chat_id))}")
+    
+    # Display chat messages
+    print("\nMessages in chat:")
+    for msg in chat_manager.get_chat_messages(chat1.chat_id):
+        user = chat_manager.get_user(msg.user_id)
+        print(f"{user.username}: {msg.content}")
+    
+    # Display user chats
+    print(f"\nAlice's chats: {len(chat_manager.get_user_chats(user1.user_id))}")
+    
+    # Get chat statistics
+    stats = chat_manager.get_chat_statistics(chat1.chat_id)
+    print(f"\nChat Statistics: {stats}")
+    
+    # Search messages
+    print("\nSearching for 'hi':")
+    results = chat_manager.search_messages(chat1.chat_id, "hi")
+    for msg in results:
+        user = chat_manager.get_user(msg.user_id)
+        print(f"{user.username}: {msg.content}")
+    
+    print(f"\nOnline users: {len(chat_manager.get_online_users())}")
