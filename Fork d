@@ -1,0 +1,27 @@
+import { BrowserProvider, Contract } from "ethers";
+import registryAbi from "./ContainerRegistryABI.json";
+
+const REGISTRY_ADDRESS = "0xYourRegistryAddressOnGroundZero";
+const GROUND_ZERO_CHAIN_ID_HEX = "0x4d2"; // 1234 in hex
+
+async function getGroundZeroSigner() {
+  if (!window.ethereum) throw new Error("MetaMask not available");
+
+  // ensure Ground Zero network is selected
+  await window.ethereum.request({
+    method: "wallet_switchEthereumChain",
+    params: [{ chainId: GROUND_ZERO_CHAIN_ID_HEX }],
+  });
+
+  const provider = new BrowserProvider(window.ethereum);
+  const accounts = await provider.send("eth_requestAccounts", []);
+  const signer = await provider.getSigner(accounts[0]);
+  return { provider, signer };
+}
+
+async function setDesiredRunning(containerIdBytes32) {
+  const { signer } = await getGroundZeroSigner();
+  const registry = new Contract(REGISTRY_ADDRESS, registryAbi, signer);
+  const tx = await registry.setDesired(containerIdBytes32, 2); // enum Running
+  await tx.wait();
+}
