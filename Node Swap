@@ -1,0 +1,199 @@
+from typing import Dict, List, Optional
+from dataclasses import dataclass
+from datetime import datetime
+import re
+
+@dataclass
+class ContractAlias:
+    """Represents a contract alias with associated email information"""
+    alias_id: str
+    contract_address: str
+    alias_name: str
+    email: str
+    created_at: datetime
+    updated_at: datetime
+    is_active: bool = True
+    metadata: Optional[Dict] = None
+
+class ContractAliasManager:
+    """Manages contract aliases and their associated emails"""
+    
+    def __init__(self):
+        self.aliases: Dict[str, ContractAlias] = {}
+        self.contract_to_alias: Dict[str, str] = {}
+        self.email_to_alias: Dict[str, str] = {}
+    
+    def validate_email(self, email: str) -> bool:
+        """Validate email format"""
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return re.match(pattern, email) is not None
+    
+    def create_alias(self, alias_id: str, contract_address: str, 
+                    alias_name: str, email: str, metadata: Optional[Dict] = None) -> ContractAlias:
+        """Create a new contract alias"""
+        if not self.validate_email(email):
+            raise ValueError("Invalid email format")
+        
+        # Check if alias ID already exists
+        if alias_id in self.aliases:
+            raise ValueError(f"Alias ID '{alias_id}' already exists")
+        
+        # Check if contract address already has an alias
+        if contract_address in self.contract_to_alias:
+            raise ValueError(f"Contract address '{contract_address}' already has an alias")
+        
+        # Check if email already exists
+        if email in self.email_to_alias:
+            raise ValueError(f"Email '{email}' already associated with an alias")
+        
+        now = datetime.now()
+        alias = ContractAlias(
+            alias_id=alias_id,
+            contract_address=contract_address,
+            alias_name=alias_name,
+            email=email,
+            created_at=now,
+            updated_at=now,
+            metadata=metadata
+        )
+        
+        self.aliases[alias_id] = alias
+        self.contract_to_alias[contract_address] = alias_id
+        self.email_to_alias[email] = alias_id
+        
+        return alias
+    
+    def get_alias(self, alias_id: str) -> Optional[ContractAlias]:
+        """Get alias by ID"""
+        return self.aliases.get(alias_id)
+    
+    def get_alias_by_contract(self, contract_address: str) -> Optional[ContractAlias]:
+        """Get alias by contract address"""
+        alias_id = self.contract_to_alias.get(contract_address)
+        return self.aliases.get(alias_id) if alias_id else None
+    
+    def get_alias_by_email(self, email: str) -> Optional[ContractAlias]:
+        """Get alias by email"""
+        alias_id = self.email_to_alias.get(email)
+        return self.aliases.get(alias_id) if alias_id else None
+    
+    def update_alias(self, alias_id: str, **kwargs) -> Optional[ContractAlias]:
+        """Update alias fields"""
+        alias = self.aliases.get(alias_id)
+        if not alias:
+            return None
+        
+        # Validate email if provided
+        if 'email' in kwargs and kwargs['email']:
+            if not self.validate_email(kwargs['email']):
+                raise ValueError("Invalid email format")
+        
+        # Update fields
+        for key, value in kwargs.items():
+            if hasattr(alias, key):
+                if key == 'email' and value and value != alias.email:
+                    # Remove old email mapping
+                    if alias.email in self.email_to_alias:
+                        del self.email_to_alias[alias.email]
+                    # Add new email mapping
+                    self.email_to_alias[value] = alias_id
+                elif key == 'contract_address' and value and value != alias.contract_address:
+                    # Remove old contract mapping
+                    if alias.contract_address in self.contract_to_alias:
+                        del self.contract_to_alias[alias.contract_address]
+                    # Add new contract mapping
+                    self.contract_to_alias[value] = alias_id
+                
+                setattr(alias, key, value)
+        
+        alias.updated_at = datetime.now()
+        return alias
+    
+    def delete_alias(self, alias_id: str) -> bool:
+        """Delete an alias"""
+        alias = self.aliases.get(alias_id)
+        if not alias:
+            return False
+        
+        # Remove all mappings
+        del self.aliases[alias_id]
+        if alias.contract_address in self.contract_to_alias:
+            del self.contract_to_alias[alias.contract_address]
+        if alias.email in self.email_to_alias:
+            del self.email_to_alias[alias.email]
+        
+        return True
+    
+    def list_aliases(self, active_only: bool = True) -> List[ContractAlias]:
+        """List all aliases"""
+        if active_only:
+            return [alias for alias in self.aliases.values() if alias.is_active]
+        return list(self.aliases.values())
+    
+    def search_aliases(self, query: str) -> List[ContractAlias]:
+        """Search aliases by name, contract address, or email"""
+        results = []
+        query_lower = query.lower()
+        
+        for alias in self.aliases.values():
+            if (query_lower in alias.alias_name.lower() or 
+                query_lower in alias.contract_address.lower() or 
+                query_lower in alias.email.lower()):
+                results.append(alias)
+        
+        return results
+
+# Example usage
+if __name__ == "__main__":
+    # Initialize the contract alias manager
+    manager = ContractAliasManager()
+    
+    # Create some aliases
+    try:
+        # Create contract alias with email
+        alias1 = manager.create_alias(
+            alias_id="contract_001",
+            contract_address="0x1234567890123456789012345678901234567890",
+            alias_name="TokenContract",
+            email="token@company.com",
+            metadata={"category": "ERC20", "network": "Ethereum"}
+        )
+        
+        alias2 = manager.create_alias(
+            alias_id="contract_002",
+            contract_address="0x0987654321098765432109876543210987654321",
+            alias_name="NFTMarketplace",
+            email="nft@marketplace.com"
+        )
+        
+        print("Created aliases:")
+        print(f"Alias 1: {alias1.alias_name} ({alias1.contract_address})")
+        print(f"Alias 2: {alias2.alias_name} ({alias2.contract_address})")
+        
+        # Search for an alias
+        found_alias = manager.get_alias_by_contract("0x1234567890123456789012345678901234567890")
+        if found_alias:
+            print(f"Found: {found_alias.alias_name}")
+        
+        # Update an alias
+        updated_alias = manager.update_alias(
+            alias_id="contract_001",
+            alias_name="UpdatedTokenContract",
+            email="updated@company.com"
+        )
+        
+        if updated_alias:
+            print(f"Updated: {updated_alias.alias_name}")
+        
+        # List all aliases
+        print("\nAll aliases:")
+        for alias in manager.list_aliases():
+            print(f"- {alias.alias_name} ({alias.email})")
+        
+        # Search aliases
+        print("\nSearch results for 'Token':")
+        for alias in manager.search_aliases("Token"):
+            print(f"- {alias.alias_name}: {alias.contract_address}")
+            
+    except ValueError as e:
+        print(f"Error: {e}")
