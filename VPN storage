@@ -1,0 +1,51 @@
+// Pseudocode for agent event handler
+agent.on('LeaseOpened', async (event) => {
+    const { leaseId, offerId, consumer, sizeGB, vpnEnabled } = event.args;
+    
+    // 1. Provision storage (IPFS pin, MinIO bucket, etc.)
+    const storageEndpoints = await provisionStorage(leaseId, sizeGB);
+    
+    // 2. IF vpnEnabled: provision VPN tunnel
+    let vpnConfig = null;
+    if (vpnEnabled) {
+        const offer = await storageMarket.offers(offerId);
+        vpnConfig = await provisionVpnTunnel({
+            leaseId,
+            consumer,
+            storageEndpoints,      // VPN routes to storage
+            templateCid: offer.vpnConfigTemplate,
+            bandwidthMbps: offer.vpnBandwidthMbps
+        });
+        
+        // 3. Publish VPN config to IPFS, get CID
+        const vpnConfigCid = await ipfs.add(vpnConfig);
+        
+        // 4. Write back to Ground Zero
+        await storageMarket.publishVpnConfig(leaseId, vpnConfigCid);
+    }
+});
+
+async function provisionVpnTunnel({ leaseId, consumer, storageEndpoints, templateCid, bandwidthMbps }) {
+    // Generate WireGuard peer config:
+    const wgConfig = {
+        interface: {
+            privateKey: generateKeypair().privateKey,
+            address: `10.${leaseId % 256}.0.2/24`,
+            dns: storageEndpoints.dns || '1.1.1.1'
+        },
+        peer: {
+            publicKey: serverPublicKey,
+            endpoint: serverEndpoint,
+            allowedIPs: [`10.${leaseId % 256}.0.0/24`, ...storageEndpoints.ips],
+            persistentKeepalive: 25
+        }
+    };
+    
+    // Rate limit based on bandwidthMbps (tc/iptables)
+    setupBandwidthLimit(leaseId, bandwidthMbps);
+    
+    // Encrypt config for consumer's wallet (optional)
+    const encryptedConfig = await encryptForWallet(wgConfig, consumer);
+    
+    return { wgConfig: encryptedConfig, leaseId };
+}
