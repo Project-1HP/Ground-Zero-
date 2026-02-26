@@ -1,0 +1,41 @@
+// In your ethers.js StoragePanel component
+const [leases, setLeases] = useState([]);
+const [vpnConfigs, setVpnConfigs] = useState<Map<string, string>>();
+
+const loadMyLeases = async () => {
+    // ... fetch user's active leases ...
+    for (const lease of leases) {
+        if (lease.vpnEnabled && lease.vpnConfigHash !== '0x00...') {
+            // Fetch VPN config from IPFS gateway
+            const configUrl = `https://ipfs.io/ipfs/${lease.vpnConfigHash}`;
+            vpnConfigs.set(lease.id.toString(), configUrl);
+        }
+    }
+};
+
+return (
+    <div>
+        {/* Existing offer table */}
+        
+        {/* Active leases with VPN */}
+        <div>
+            {leases.map(lease => (
+                <div key={lease.id}>
+                    <p>Lease {lease.id}: {lease.sizeGB}GB</p>
+                    {lease.vpnEnabled && (
+                        <div>
+                            <p>✅ VPN Active</p>
+                            {vpnConfigs.has(lease.id.toString()) ? (
+                                <a href={vpnConfigs.get(lease.id.toString())} download>
+                                    Download WireGuard Config
+                                </a>
+                            ) : (
+                                <p>Waiting for provider...</p>
+                            )}
+                        </div>
+                    )}
+                </div>
+            ))}
+        </div>
+    </div>
+);
