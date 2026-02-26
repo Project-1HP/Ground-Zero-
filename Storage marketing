@@ -1,0 +1,193 @@
+// StoragePanel.tsx
+import React, { useEffect, useState } from "react";
+import { BrowserProvider, Contract, parseUnits } from "ethers";
+import storageAbi from "./StorageMarketABI.json";
+import erc20Abi from "./ERC20ABI.json";
+
+declare global {
+  interface Window {
+    ethereum?: any;
+  }
+}
+
+const STORAGE_MARKET_ADDRESS = "0xYourStorageMarketOnGroundZero";
+const PAYMENT_TOKEN_ADDRESS = "0xYourPaymentTokenOnGroundZero";
+const GZ_CHAIN_ID_HEX = "0x4d2"; // 1234 example
+
+type Offer = {
+  id: bigint;
+  provider: string;
+  capacityGB: bigint;
+  usedGB: bigint;
+  pricePerGBPerSec: bigint;
+  minLeaseSeconds: bigint;
+  maxLeaseSeconds: bigint;
+};
+
+async function getSigner() {
+  if (!window.ethereum) throw new Error("MetaMask not found");
+  await window.ethereum.request({
+    method: "wallet_switchEthereumChain",
+    params: [{ chainId: GZ_CHAIN_ID_HEX }],
+  });
+  const provider = new BrowserProvider(window.ethereum);
+  const accounts = await provider.send("eth_requestAccounts", []);
+  const signer = await provider.getSigner(accounts[0]);
+  return { provider, signer };
+}
+
+const StoragePanel: React.FC = () => {
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [leaseSizeGB, setLeaseSizeGB] = useState("100");
+  const [leaseSeconds, setLeaseSeconds] = useState("2592000"); // 30 days
+  const [selectedOffer, setSelectedOffer] = useState<bigint | null>(null);
+
+  const loadOffers = async () => {
+    try {
+      setLoading(true);
+      const { provider } = await getSigner();
+      const market = new Contract(STORAGE_MARKET_ADDRESS, storageAbi as any, provider);
+
+      // naive example: iterate over a small id range
+      const loaded: Offer[] = [];
+      for (let id = 1n; id <= 10n; id++) {
+        try {
+          const o = await market.offers(id);
+          if (o.provider !== "0x0000000000000000000000000000000000000000") {
+            loaded.push({
+              id,
+              provider: o.provider,
+              capacityGB: o.capacityGB,
+              usedGB: o.usedGB,
+              pricePerGBPerSec: o.pricePerGBPerSec,
+              minLeaseSeconds: o.minLeaseSeconds,
+              maxLeaseSeconds: o.maxLeaseSeconds,
+            });
+          }
+        } catch {
+          // ignore holes
+        }
+      }
+      setOffers(loaded);
+      setStatus(`Loaded ${loaded.length} offers`);
+    } catch (e: any) {
+      setStatus(e.message || "Failed to load offers");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const approveAndOpenLease = async () => {
+    if (selectedOffer === null) return;
+    try {
+      setLoading(true);
+      const { signer } = await getSigner();
+      const market = new Contract(STORAGE_MARKET_ADDRESS, storageAbi as any, signer);
+      const token = new Contract(PAYMENT_TOKEN_ADDRESS, erc20Abi as any, signer);
+
+      const sizeGB = BigInt(leaseSizeGB);
+      const leaseSecs = BigInt(leaseSeconds);
+
+      // read offer to compute cost
+      const o = await market.offers(selectedOffer);
+      const cost = sizeGB * leaseSecs * o.pricePerGBPerSec; // raw token units
+
+      // approve token spend (simplest pattern)
+      const approveTx = await token.approve(STORAGE_MARKET_ADDRESS, cost);
+      setStatus("Approving payment...");
+      await approveTx.wait();
+
+      const tx = await market.openLease(selectedOffer, sizeGB, leaseSecs);
+      setStatus("Opening lease...");
+      await tx.wait();
+
+      setStatus("Lease opened on Ground Zero");
+      await loadOffers();
+    } catch (e: any) {
+      setStatus(e.message || "Failed to open lease");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadOffers().catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div style={{ padding: 16 }}>
+      <h3>Ground Zero Storage Market</h3>
+      {status && <p style={{ fontSize: 12 }}>{status}</p>}
+      {loading && <p>Loading…</p>}
+
+      <table style={{ fontSize: 12, borderCollapse: "collapse", marginTop: 8 }}>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Provider</th>
+            <th>Capacity GB</th>
+            <th>Used GB</th>
+            <th>Price / GB·s</th>
+            <th>Min lease (s)</th>
+            <th>Max lease (s)</th>
+            <th>Select</th>
+          </tr>
+        </thead>
+        <tbody>
+          {offers.map((o) => (
+            <tr key={o.id.toString()}>
+              <td>{o.id.toString()}</td>
+              <td style={{ maxWidth: 120, wordBreak: "break-all" }}>{o.provider}</td>
+              <td>{o.capacityGB.toString()}</td>
+              <td>{o.usedGB.toString()}</td>
+              <td>{o.pricePerGBPerSec.toString()}</td>
+              <td>{o.minLeaseSeconds.toString()}</td>
+              <td>{o.maxLeaseSeconds.toString()}</td>
+              <td>
+                <input
+                  type="radio"
+                  name="offer"
+                  checked={selectedOffer === o.id}
+                  onChange={() => setSelectedOffer(o.id)}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div style={{ marginTop: 16 }}>
+        <label>
+          Lease size (GB):{" "}
+          <input
+            value={leaseSizeGB}
+            onChange={(e) => setLeaseSizeGB(e.target.value)}
+            style={{ width: 80 }}
+          />
+        </label>
+        <br />
+        <label>
+          Lease length (seconds):{" "}
+          <input
+            value={leaseSeconds}
+            onChange={(e) => setLeaseSeconds(e.target.value)}
+            style={{ width: 120 }}
+          />
+        </label>
+        <br />
+        <button
+          disabled={selectedOffer === null || loading}
+          onClick={approveAndOpenLease}
+          style={{ marginTop: 8 }}
+        >
+          Open Lease
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default StoragePanel;
