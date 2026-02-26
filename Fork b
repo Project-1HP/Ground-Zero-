@@ -1,0 +1,25 @@
+// groundZeroProvider.ts
+import { JsonRpcProvider, BrowserProvider } from "ethers";
+
+export const GROUND_ZERO_RPC = "http://127.0.0.1:8545";
+export const GROUND_ZERO_CHAIN_ID = 1234;
+export const GROUND_ZERO_CHAIN_ID_HEX = "0x4d2";
+
+export function getGroundZeroRpcProvider() {
+  return new JsonRpcProvider(GROUND_ZERO_RPC, {
+    chainId: GROUND_ZERO_CHAIN_ID,
+    name: "ground-zero",
+  });
+}
+
+export async function getGroundZeroBrowserSigner() {
+  if (!window.ethereum) throw new Error("MetaMask not available");
+  await window.ethereum.request({
+    method: "wallet_switchEthereumChain",
+    params: [{ chainId: GROUND_ZERO_CHAIN_ID_HEX }],
+  });
+  const provider = new BrowserProvider(window.ethereum);
+  const accounts = await provider.send("eth_requestAccounts", []);
+  const signer = await provider.getSigner(accounts[0]);
+  return { provider, signer };
+}
