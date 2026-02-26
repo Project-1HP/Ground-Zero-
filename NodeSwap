@@ -1,0 +1,148 @@
+from abc import ABC, abstractmethod
+from typing import Any, Dict, Optional
+from enum import Enum
+
+class NodeType(Enum):
+    """Enumeration of node types for easy swapping"""
+    LEAF = "leaf"
+    BRANCH = "branch"
+    SPECIAL = "special"
+
+class Node(ABC):
+    """Abstract base class for all nodes"""
+    
+    def __init__(self, node_id: str, data: Any = None):
+        self.node_id = node_id
+        self.data = data
+        self.parent: Optional['Node'] = None
+        self.children: Dict[str, 'Node'] = {}
+    
+    @abstractmethod
+    def process(self) -> Any:
+        """Process the node's data"""
+        pass
+    
+    @abstractmethod
+    def get_type(self) -> NodeType:
+        """Return the node type"""
+        pass
+    
+    def add_child(self, child_node: 'Node') -> None:
+        """Add a child node"""
+        child_node.parent = self
+        self.children[child_node.node_id] = child_node
+    
+    def remove_child(self, child_id: str) -> bool:
+        """Remove a child node"""
+        if child_id in self.children:
+            self.children[child_id].parent = None
+            del self.children[child_id]
+            return True
+        return False
+    
+    def get_child(self, child_id: str) -> Optional['Node']:
+        """Get a child node"""
+        return self.children.get(child_id)
+
+class LeafNode(Node):
+    """Concrete implementation - Leaf Node"""
+    
+    def __init__(self, node_id: str, data: Any = None):
+        super().__init__(node_id, data)
+    
+    def process(self) -> Any:
+        return f"Leaf node {self.node_id}: {self.data} processed"
+    
+    def get_type(self) -> NodeType:
+        return NodeType.LEAF
+
+class BranchNode(Node):
+    """Concrete implementation - Branch Node"""
+    
+    def __init__(self, node_id: str, data: Any = None):
+        super().__init__(node_id, data)
+    
+    def process(self) -> Any:
+        result = f"Branch node {self.node_id}: {self.data} processed\n"
+        for child_id, child in self.children.items():
+            result += f"  {child.process()}\n"
+        return result.strip()
+    
+    def get_type(self) -> NodeType:
+        return NodeType.BRANCH
+
+class SpecialNode(Node):
+    """Concrete implementation - Special Node"""
+    
+    def __init__(self, node_id: str, data: Any = None):
+        super().__init__(node_id, data)
+    
+    def process(self) -> Any:
+        return f"Special node {self.node_id}: {self.data} processed with special logic"
+    
+    def get_type(self) -> NodeType:
+        return NodeType.SPECIAL
+
+class NodeSwapper:
+    """Swappable node factory and manager"""
+    
+    @staticmethod
+    def create_node(node_type: NodeType, node_id: str, data: Any = None) -> Node:
+        """Factory method to create nodes of different types"""
+        if node_type == NodeType.LEAF:
+            return LeafNode(node_id, data)
+        elif node_type == NodeType.BRANCH:
+            return BranchNode(node_id, data)
+        elif node_type == NodeType.SPECIAL:
+            return SpecialNode(node_id, data)
+        else:
+            raise ValueError(f"Unknown node type: {node_type}")
+    
+    @staticmethod
+    def swap_node_type(old_node: Node, new_type: NodeType) -> Node:
+        """Swap node type while preserving data"""
+        new_node = NodeSwapper.create_node(new_type, old_node.node_id, old_node.data)
+        
+        # Preserve parent-child relationships
+        if old_node.parent:
+            old_node.parent.children.pop(old_node.node_id, None)
+            old_node.parent.add_child(new_node)
+        
+        # Transfer children
+        for child_id, child in old_node.children.items():
+            new_node.add_child(child)
+        
+        return new_node
+
+# Example usage
+if __name__ == "__main__":
+    # Create a tree structure with different node types
+    root = NodeSwapper.create_node(NodeType.BRANCH, "root", "root_data")
+    
+    # Add leaf nodes
+    leaf1 = NodeSwapper.create_node(NodeType.LEAF, "leaf1", "leaf_data_1")
+    leaf2 = NodeSwapper.create_node(NodeType.LEAF, "leaf2", "leaf_data_2")
+    
+    # Add special node
+    special = NodeSwapper.create_node(NodeType.SPECIAL, "special", "special_data")
+    
+    # Build the tree
+    root.add_child(leaf1)
+    root.add_child(leaf2)
+    root.add_child(special)
+    
+    # Process the tree
+    print("Processing tree:")
+    print(root.process())
+    
+    print("\n" + "="*50)
+    
+    # Demonstrate swappable functionality
+    print("Swapping leaf node to special node:")
+    swapped_node = NodeSwapper.swap_node_type(leaf1, NodeType.SPECIAL)
+    
+    # Replace in tree (simplified for demo)
+    root.remove_child("leaf1")
+    root.add_child(swapped_node)
+    
+    print(root.process())
