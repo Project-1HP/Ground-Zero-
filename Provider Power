@@ -1,0 +1,8 @@
+struct Provider {
+    address owner;
+    uint256 stake;
+    bool active;
+    // metadata reference (IPFS or other) for capabilities, jurisdiction, etc.
+    bytes32 metaHash;
+}
+mapping(address => Provider) public providers;
