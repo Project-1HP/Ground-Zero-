@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract ContainerRegistry {
+    enum DesiredState {
+        Unknown,
+        Stopped,
+        Running
+    }
+
+    struct Container {
+        address owner;
+        string runtimeId;      // e.g. Docker/K8s ID or logical name
+        DesiredState desired;  // what the chain says it *should* be doing
+        string configHash;     // hash / URI of desired config (image+env)
+    }
+
+    mapping(bytes32 => Container) public containers;
+
+    event ContainerRegistered(bytes32 indexed id, address indexed owner, string runtimeId, string configHash);
+    event DesiredStateChanged(bytes32 indexed id, DesiredState desired);
+    event ConfigHashUpdated(bytes32 indexed id, string configHash);
+
+    modifier onlyOwner(bytes32 id) {
+        require(containers[id].owner == msg.sender, "not owner");
+        _;
+    }
+
+    function registerContainer(bytes32 id, string calldata runtimeId, string calldata configHash) external {
+        require(containers[id].owner == address(0), "already registered");
+        containers[id] = Container({
+            owner: msg.sender,
+            runtimeId: runtimeId,
+            desired: DesiredState.Stopped,
+            configHash: configHash
+        });
+        emit ContainerRegistered(id, msg.sender, runtimeId, configHash);
+    }
+
+    function setDesiredState(bytes32 id, DesiredState desired) external onlyOwner(id) {
+        containers[id].desired = desired;
+        emit DesiredStateChanged(id, desired);
+    }
+
+    function updateConfigHash(bytes32 id, string calldata configHash) external onlyOwner(id) {
+        containers[id].configHash = configHash;
+        emit ConfigHashUpdated(id, configHash);
+    }
+
+    // View helper
+    function getContainer(bytes32 id) external view returns (
+        address owner,
+        string memory runtimeId,
+        DesiredState desired,
+        string memory configHash
+    ) {
+        Container storage c = containers[id];
+        return (c.owner, c.runtimeId, c.desired, c.configHash);
+    }
+}
