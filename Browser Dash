@@ -1,0 +1,21 @@
+// GroundZeroDashboard.tsx
+import React from "react";
+import ContainerPanel from "./ContainerPanel";
+
+const containers = [
+  "0x1111...0001",
+  "0x1111...0002",
+  "0x1111...0003",
+];
+
+const GroundZeroDashboard: React.FC = () => {
+  return (
+    <div className="grid">
+      {containers.map((id) => (
+        <ContainerPanel key={id} containerId={id} />
+      ))}
+    </div>
+  );
+};
+
+export default GroundZeroDashboard;
