@@ -1,0 +1,151 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+interface IERC20 {
+    function transferFrom(address from, address to, uint256 value) external returns (bool);
+}
+
+/// @notice Simple storage market: providers post GB capacity, consumers open prepaid leases.
+contract StorageMarket {
+    enum StorageClass { Archive, Standard, Hot }
+
+    struct StorageOffer {
+        uint256 id;
+        address provider;
+        uint64 createdAt;
+        uint64 minLeaseSeconds;
+        uint64 maxLeaseSeconds;
+        uint256 capacityGB;
+        uint256 usedGB;
+        uint256 pricePerGBPerSec; // payment token per GB-second
+        StorageClass class_;
+        bool active;
+        bytes32 metaHash;
+    }
+
+    struct Lease {
+        uint256 id;
+        uint256 offerId;
+        address consumer;
+        uint64 startTime;
+        uint64 endTime;
+        uint256 sizeGB;
+        bytes32 dataRoot; // set later by provider after upload
+        bool active;
+    }
+
+    IERC20 public immutable paymentToken;
+    uint256 public nextOfferId = 1;
+    uint256 public nextLeaseId = 1;
+
+    mapping(uint256 => StorageOffer) public offers;
+    mapping(uint256 => Lease) public leases;
+
+    event OfferCreated(uint256 indexed id, address indexed provider);
+    event OfferUpdated(uint256 indexed id, bool active);
+    event LeaseOpened(uint256 indexed id, uint256 indexed offerId, address indexed consumer, uint256 sizeGB, uint64 startTime, uint64 endTime, uint256 paidAmount);
+    event LeaseDataRootSet(uint256 indexed id, bytes32 dataRoot);
+    event LeaseClosed(uint256 indexed id);
+
+    constructor(IERC20 _paymentToken) {
+        paymentToken = _paymentToken;
+    }
+
+    function createOffer(
+        uint64 minLeaseSeconds,
+        uint64 maxLeaseSeconds,
+        uint256 capacityGB,
+        uint256 pricePerGBPerSec,
+        StorageClass class_,
+        bytes32 metaHash
+    ) external returns (uint256 id) {
+        require(minLeaseSeconds > 0 && maxLeaseSeconds >= minLeaseSeconds, "bad lease window");
+        require(capacityGB > 0, "capacity 0");
+        require(pricePerGBPerSec > 0, "price 0");
+
+        id = nextOfferId++;
+        offers[id] = StorageOffer({
+            id: id,
+            provider: msg.sender,
+            createdAt: uint64(block.timestamp),
+            minLeaseSeconds: minLeaseSeconds,
+            maxLeaseSeconds: maxLeaseSeconds,
+            capacityGB: capacityGB,
+            usedGB: 0,
+            pricePerGBPerSec: pricePerGBPerSec,
+            class_: class_,
+            active: true,
+            metaHash: metaHash
+        });
+
+        emit OfferCreated(id, msg.sender);
+    }
+
+    function setOfferActive(uint256 offerId, bool active) external {
+        StorageOffer storage o = offers[offerId];
+        require(o.provider == msg.sender, "not provider");
+        o.active = active;
+        emit OfferUpdated(offerId, active);
+    }
+
+    function openLease(
+        uint256 offerId,
+        uint256 sizeGB,
+        uint64 leaseSeconds
+    ) external returns (uint256 leaseId) {
+        StorageOffer storage o = offers[offerId];
+        require(o.active, "offer inactive");
+        require(o.provider != address(0), "offer not found");
+        require(sizeGB > 0, "size 0");
+        require(leaseSeconds >= o.minLeaseSeconds && leaseSeconds <= o.maxLeaseSeconds, "bad lease duration");
+        require(o.usedGB + sizeGB <= o.capacityGB, "no capacity");
+
+        uint64 start = uint64(block.timestamp);
+        uint64 end = start + leaseSeconds;
+
+        // price = sizeGB * leaseSeconds * pricePerGBPerSec
+        uint256 amount = sizeGB * leaseSeconds * o.pricePerGBPerSec;
+
+        // payment from consumer to provider
+        require(paymentToken.transferFrom(msg.sender, o.provider, amount), "payment failed");
+
+        o.usedGB += sizeGB;
+
+        leaseId = nextLeaseId++;
+        leases[leaseId] = Lease({
+            id: leaseId,
+            offerId: offerId,
+            consumer: msg.sender,
+            startTime: start,
+            endTime: end,
+            sizeGB: sizeGB,
+            dataRoot: bytes32(0),
+            active: true
+        });
+
+        emit LeaseOpened(leaseId, offerId, msg.sender, sizeGB, start, end, amount);
+    }
+
+    function setLeaseDataRoot(uint256 leaseId, bytes32 dataRoot) external {
+        Lease storage L = leases[leaseId];
+        require(L.consumer != address(0), "lease not found");
+        StorageOffer storage o = offers[L.offerId];
+        require(msg.sender == o.provider, "not provider");
+        require(L.active, "inactive");
+
+        L.dataRoot = dataRoot;
+        emit LeaseDataRootSet(leaseId, dataRoot);
+    }
+
+    function closeLease(uint256 leaseId) external {
+        Lease storage L = leases[leaseId];
+        require(L.consumer != address(0), "lease not found");
+        StorageOffer storage o = offers[L.offerId];
+        require(msg.sender == o.provider || msg.sender == L.consumer, "not authorized");
+        require(L.active, "already closed");
+        require(block.timestamp >= L.endTime, "not expired");
+
+        L.active = false;
+        emit LeaseClosed(leaseId);
+    }
+}
