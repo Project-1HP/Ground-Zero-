@@ -1,0 +1,153 @@
+import React, { useEffect, useState } from "react";
+import { BrowserProvider, Contract } from "ethers";
+import registryAbi from "./registryAbi.json";
+
+declare global {
+  interface Window {
+    ethereum?: any;
+  }
+}
+
+const REGISTRY_ADDRESS = "0xYourRegistryAddress"; // Deployed on Ground Zero
+const GROUND_ZERO_CHAIN_ID = "0x1234"; // Replace with your chainId
+
+type DesiredState = 0 | 1 | 2; // Unknown, Stopped, Running
+
+interface Props {
+  idHex: string; // bytes32 container id, e.g. 0x... (32 bytes)
+}
+
+async function getProviderAndSigner() {
+  if (!window.ethereum) throw new Error("MetaMask not found");
+
+  // ensure Ground Zero network
+  try {
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: GROUND_ZERO_CHAIN_ID }]
+    });
+  } catch (e) {
+    // optionally add the network here
+  }
+
+  const provider = new BrowserProvider(window.ethereum);
+  const accounts = await provider.send("eth_requestAccounts", []);
+  const signer = await provider.getSigner(accounts[0]);
+  return { provider, signer };
+}
+
+function getRegistry(signerOrProvider: any) {
+  return new Contract(REGISTRY_ADDRESS, registryAbi as any, signerOrProvider);
+}
+
+const ContainerPanel: React.FC<Props> = ({ idHex }) => {
+  const [account, setAccount] = useState<string | null>(null);
+  const [owner, setOwner] = useState<string>("");
+  const [desired, setDesired] = useState<DesiredState>(0);
+  const [status, setStatus] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+
+  const loadContainer = async () => {
+    try {
+      setLoading(true);
+      const { provider } = await getProviderAndSigner();
+      const registry = getRegistry(provider);
+      const [ownerAddr, desiredState] = await registry.get(idHex);
+      setOwner(ownerAddr);
+      setDesired(desiredState);
+      setStatus("Loaded from Ground Zero");
+    } catch (err: any) {
+      setStatus(err.message || "load error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const connectWallet = async () => {
+    try {
+      setLoading(true);
+      const { signer } = await getProviderAndSigner();
+      const addr = await signer.getAddress();
+      setAccount(addr);
+      setStatus("Wallet connected");
+      await loadContainer();
+    } catch (err: any) {
+      setStatus(err.message || "connect error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const setDesiredOnChain = async (next: DesiredState) => {
+    try {
+      setLoading(true);
+      const { signer } = await getProviderAndSigner();
+      const registry = getRegistry(signer);
+      const tx = await registry.setDesired(idHex, next);
+      setStatus("Tx sent, waiting...");
+      await tx.wait();
+      setDesired(next);
+      setStatus("Desired state updated");
+    } catch (err: any) {
+      setStatus(err.message || "tx error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (window.ethereum) {
+      window.ethereum
+        .request({ method: "eth_accounts" })
+        .then((accounts: string[]) => {
+          if (accounts.length > 0) connectWallet();
+        })
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idHex]);
+
+  return (
+    <div style={{ border: "1px solid #444", padding: 16, borderRadius: 8 }}>
+      <h3>Ground Zero Container</h3>
+      <p style={{ fontSize: 12, wordBreak: "break-all" }}>ID: {idHex}</p>
+
+      {!account ? (
+        <button disabled={loading} onClick={connectWallet}>
+          Connect MetaMask
+        </button>
+      ) : (
+        <p style={{ fontSize: 12 }}>Connected: {account}</p>
+      )}
+
+      {loading && <p>Loading…</p>}
+      {status && <p style={{ fontSize: 12 }}>{status}</p>}
+
+      <hr />
+
+      <p style={{ fontSize: 12, wordBreak: "break-all" }}>
+        Owner: {owner || "unregistered"}
+      </p>
+      <p>
+        Desired:{" "}
+        {desired === 2 ? "Running" : desired === 1 ? "Stopped" : "Unknown"}
+      </p>
+
+      <button
+        disabled={!account || loading}
+        onClick={() => setDesiredOnChain(2)}
+        style={{ marginRight: 8 }}
+      >
+        Set RUNNING
+      </button>
+      <button
+        disabled={!account || loading}
+        onClick={() => setDesiredOnChain(1)}
+      >
+        Set STOPPED
+      </button>
+    </div>
+  );
+};
+
+export default ContainerPanel;
