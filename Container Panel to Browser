@@ -1,0 +1,158 @@
+// ContainerPanel.tsx
+import React, { useEffect, useState } from "react";
+import { BrowserProvider, Contract } from "ethers";
+import registryAbi from "./ContainerRegistryABI.json";
+
+const REGISTRY_ADDRESS = "0xYourRegistryAddressOnGroundZero"; // replace
+const GROUND_ZERO_CHAIN_ID = "0x1234"; // hex chainId for wallet_switchEthereumChain
+
+type DesiredState = 0 | 1 | 2; // Unknown, Stopped, Running
+
+interface Props {
+  containerId: string; // hex string like "0xabc123..." used to derive bytes32 id
+}
+
+async function getProviderAndSigner() {
+  if (!window.ethereum) {
+    throw new Error("MetaMask not found");
+  }
+
+  const provider = new BrowserProvider(window.ethereum);
+
+  // ensure correct network (Ground Zero)
+  try {
+    await window.ethereum.request?.({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: GROUND_ZERO_CHAIN_ID }],
+    });
+  } catch (err) {
+    // optionally call wallet_addEthereumChain here
+    console.error(err);
+  }
+
+  const accounts = await provider.send("eth_requestAccounts", []);
+  const signer = await provider.getSigner(accounts[0]);
+  return { provider, signer };
+}
+
+function getRegistryContract(signerOrProvider: any) {
+  return new Contract(REGISTRY_ADDRESS, registryAbi, signerOrProvider);
+}
+
+const ContainerPanel: React.FC<Props> = ({ containerId }) => {
+  const [account, setAccount] = useState<string | null>(null);
+  const [runtimeId, setRuntimeId] = useState<string>("");
+  const [desired, setDesired] = useState<DesiredState>(0);
+  const [configHash, setConfigHash] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<string>("");
+
+  // load container data from Ground Zero
+  const loadContainer = async () => {
+    try {
+      setLoading(true);
+      const { provider } = await getProviderAndSigner();
+      const registry = getRegistryContract(provider);
+
+      const idBytes32 = containerId; // if already bytes32 string; otherwise hash it in JS or in contract
+      const [owner, rtId, desiredState, cfgHash] = await registry.getContainer(idBytes32);
+
+      setRuntimeId(rtId);
+      setDesired(desiredState);
+      setConfigHash(cfgHash);
+      setStatusMsg(`Owner: ${owner}`);
+    } catch (err: any) {
+      console.error(err);
+      setStatusMsg(err.message || "Error loading container");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const connectWallet = async () => {
+    try {
+      setLoading(true);
+      const { provider, signer } = await getProviderAndSigner();
+      const addr = await signer.getAddress();
+      setAccount(addr);
+
+      // optional: listen for account/network changes
+      window.ethereum?.on?.("accountsChanged", (accounts: string[]) => {
+        if (accounts.length > 0) setAccount(accounts[0]);
+      });
+
+      await loadContainer();
+    } catch (err: any) {
+      console.error(err);
+      setStatusMsg(err.message || "Failed to connect wallet");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const setDesiredState = async (next: DesiredState) => {
+    try {
+      setLoading(true);
+      const { signer } = await getProviderAndSigner();
+      const registry = getRegistryContract(signer);
+      const idBytes32 = containerId;
+
+      const tx = await registry.setDesiredState(idBytes32, next);
+      setStatusMsg("Submitting transaction...");
+      await tx.wait();
+      setStatusMsg("Transaction confirmed");
+      setDesired(next);
+    } catch (err: any) {
+      console.error(err);
+      setStatusMsg(err.message || "Failed to set desired state");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // optional: auto-connect if MetaMask already authorized
+    if (window.ethereum) {
+      window.ethereum.request({ method: "eth_accounts" }).then((accounts: string[]) => {
+        if (accounts.length > 0) {
+          connectWallet();
+        }
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [containerId]);
+
+  return (
+    <div className="container-panel">
+      <h3>Container {containerId}</h3>
+      {!account ? (
+        <button onClick={connectWallet} disabled={loading}>
+          Connect MetaMask (Ground Zero)
+        </button>
+      ) : (
+        <p>Connected as {account}</p>
+      )}
+
+      {loading && <p>Loading...</p>}
+      {statusMsg && <p>{statusMsg}</p>}
+
+      <div>
+        <p>Runtime ID: {runtimeId || "not registered"}</p>
+        <p>Config hash: {configHash || "n/a"}</p>
+        <p>
+          Desired state:{" "}
+          {desired === 2 ? "Running" : desired === 1 ? "Stopped" : "Unknown"}
+        </p>
+
+        <button onClick={() => setDesiredState(2)} disabled={!account || loading}>
+          Set desired: RUNNING
+        </button>
+        <button onClick={() => setDesiredState(1)} disabled={!account || loading}>
+          Set desired: STOPPED
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default ContainerPanel;
