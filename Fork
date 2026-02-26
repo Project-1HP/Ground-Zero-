@@ -1,0 +1,29 @@
+import { JsonRpcProvider, Wallet, Contract } from "ethers";
+import registryAbi from "./ContainerRegistryABI.json";
+
+// Ground Zero node HTTP RPC
+const GROUND_ZERO_RPC = "http://127.0.0.1:8545";  // adjust as needed
+const GROUND_ZERO_CHAIN_ID = 1234;                // your fork's chain id
+
+// Provider (read‑only)
+const provider = new JsonRpcProvider(GROUND_ZERO_RPC, {
+  chainId: GROUND_ZERO_CHAIN_ID,
+  name: "ground-zero",
+});
+
+// Optional: signer with a private key (for agents, not for frontends)
+const PRIVATE_KEY = "0xabc..."; // Ground Zero account key
+const signer = new Wallet(PRIVATE_KEY, provider);
+
+// Example: contract on Ground Zero
+const REGISTRY_ADDRESS = "0xYourRegistryAddress";
+const registry = new Contract(REGISTRY_ADDRESS, registryAbi, signer);
+
+async function demo() {
+  console.log("Ground Zero block:", await provider.getBlockNumber());
+  const id = "0x".padEnd(66, "1"); // bytes32 id example
+  const [owner, desired] = await registry.get(id);
+  console.log("Owner:", owner, "Desired:", desired.toString());
+}
+
+demo().catch(console.error);
