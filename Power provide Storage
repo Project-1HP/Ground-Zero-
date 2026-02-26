@@ -1,0 +1,26 @@
+enum StorageClass { Archive, Standard, Hot }
+
+struct StorageOffer {
+    uint256 id;
+    address provider;
+    uint64 createdAt;
+    uint64 minLeaseSeconds;
+    uint64 maxLeaseSeconds;
+    uint256 capacityGB;       // total GB of logical data
+    uint256 usedGB;           // GB already leased
+    uint256 pricePerGBPerSec; // token units per GB-second
+    StorageClass class_;
+    bool active;
+    bytes32 metaHash;         // off-chain metadata (endpoints, SLA)
+}
+
+struct Lease {
+    uint256 id;
+    uint256 offerId;
+    address consumer;
+    uint64 startTime;
+    uint64 endTime;
+    uint256 sizeGB;
+    bytes32 dataRoot;         // Merkle root or CID for stored data
+    bool active;
+}
